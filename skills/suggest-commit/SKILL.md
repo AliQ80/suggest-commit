@@ -1,6 +1,6 @@
 ---
 name: suggest-commit
-description: "Suggests a readiness-aware, domain-based commit message formatted as `domain(type): title`. Invoke ONLY when the user explicitly requests a commit suggestion — e.g. by running `/suggest-commit` or by clearly asking in natural language to 'suggest a commit message', 'draft a commit', or 'what should I commit'. Do NOT trigger automatically after an agent finishes work, and do NOT run on implicit or ambient requests. Read-only: never stages, commits, edits files, or changes VCS state. Output is ONLY the proposed commit message(s) (title/body as inline code spans); for logical splits an uncolored Files section is appended per commit; blockers/edge states emit a concise actionable message."
+description: "Suggests a readiness-aware, domain-based commit message formatted as `domain(type): title` for non-breaking changes or `domain(type)!: title` for breaking changes. Invoke ONLY when the user explicitly requests a commit suggestion — e.g. by running `/suggest-commit` or by clearly asking in natural language to 'suggest a commit message', 'draft a commit', or 'what should I commit'. Do NOT trigger automatically after an agent finishes work, and do NOT run on implicit or ambient requests. Read-only: never stages, commits, edits files, or changes VCS state. Output is ONLY the proposed commit message(s) (title/body as inline code spans; Markdown backticks are presentation-only); for logical splits an uncolored Files section is appended per commit; reverts use VCS-specific trailers; blockers/edge states emit a concise actionable message."
 metadata:
   version: "0.7.0"
   requires-path: ""
@@ -30,30 +30,51 @@ does not request a commit suggestion, do not run this workflow.
   `jj commit`, `jj squash`, file edits, or any VCS mutation.
 - **Explicit only.** No automatic post-task triggering.
 - **Domain-based title format is the invariant output.** Exactly
-  `domain(type): title`.
+  `domain(type): title` for non-breaking changes, or `domain(type)!: title`
+  when the change is breaking (the `!` appears **immediately after** the closing
+  parenthesis).
   - `domain` = the affected **subsystem, component, directory, or technical
-    concern** (e.g. `auth`, `parser`, `notify`, `ci`, `readme`). A domain is
-    **never** a generic Conventional Commits *type*. Domain inference is
-    internal; it is never explained or labeled in the user-facing message.
+    concern** (e.g. `auth`, `parser`, `notify`, `ci`, `docs`, `deps`). A
+    domain is **never** a generic Conventional Commits *type*, a filename, a
+    task name, a temporary implementation detail, or an arbitrary label. Prefer
+    the most specific stable architectural area supported by the diff. Domain
+    inference is internal; it is never explained or labeled in the user-facing
+    message.
   - `type` = one entry from the vocabulary below. Pick the most accurate; add a
-    new type only if none fits.
-- **Pre-output self-check is mandatory.** Before emitting any message, validate
+    project-specific custom type only if none fits.
+  - **Pre-output self-check is mandatory.** Before emitting any message, validate
   each candidate: domain is a real concern (not a conventional type), type is
-  from the vocabulary, title is <=50 chars (hard max 72), and every non-title
-  line wraps at 72 columns. Reject and fix any violation. Then render per the
-  Output shape: the title line and every body/bullet line is wrapped in single
-  backticks; the Files section (split suggestions only) is plain text and is
-  never backticked.
+  from the vocabulary, breaking changes carry `!` immediately after `)`, the
+  title has **no trailing punctuation** (reject and rewrite any `. , ; : ! ?`
+  etc. — the structural breaking `!` belongs immediately after `)` as header
+  syntax, not as a title-ending character), the title is <=50 chars (hard max
+  72), and every non-title line wraps at 72 columns. Reject and fix any
+  violation. Then render per the Output shape: the
+  title line and every body/bullet line is wrapped in single backticks; the
+  Files section (split suggestions only) is plain text and is never backticked.
+  **Markdown backticks are presentation-only** — they are not part of the commit
+  message; the underlying message content MUST be valid DAC without backticks.
 
 ## Type vocabulary
 
-Choose the type from this list:
+Choose the type from this standard DAC list:
 
-`feat`, `fix`, `style`, `refactor`, `perf`, `test`, `build`, `ci`,
-`ops`, `chore`, `revert`, `merge`, `init`, `deps`, `design`, `improve`,
-`security`, `release`, `wip`.
+`feat`, `improve`, `fix`, `perf`, `security`, `bump`, `revert`, `cleanup`,
+`refactor`, `style`, `test`, `init`, `release`, `wip`, `merge`.
 
-Add a new type only when none of these fits accurately.
+Add a project-specific custom type only when no standard type fits.
+
+The following are **domains, not types**: `deps`, `ci`, `ops`, `build`,
+`docs`. Represent the action with a DAC type — e.g. a dependency upgrade uses
+`deps(bump): ...`, a CI defect uses `ci(fix): ...`, a build-config restructure
+uses `build(refactor): ...` or `build(style): ...`, and documentation uses
+`docs(...)`. Never emit `build(type)`, `ci(type)`, `ops(type)`, or
+`deps(type)`.
+
+`chore` is **discouraged** and is not a preferred DAC type. Prefer a standard
+type plus a domain (e.g. `ops(cleanup): ...`, `ci(style): ...`). Reach for
+`chore` only when no standard type plus domain conveys the change, and treat it
+as a last resort rather than a default.
 
 ## Repository inspection (VCS-aware)
 
@@ -104,6 +125,10 @@ computed internally and governs whether a commit message may be emitted; it is
   not run, behavior you could not verify, or assumptions about intent. Do not
   pretend to prove correctness; still emit the message only if no blockers exist.
 
+Readiness assessment never alters the DAC syntax or vocabulary. When no blocker
+exists, emit the full DAC-formatted message; blockers emit only the concise
+actionable message, never a partially formatted one.
+
 ## Message format
 
 For each cohesive unit, build one complete message:
@@ -116,6 +141,21 @@ One-to-two sentence overview of the motivation or problem solved.
 - Bullet for each granular change
 - Key decision and, when relevant, discarded alternative
 - Reference (issue/PR) when applicable
+
+closes #10
+refs #12
+```
+
+For a **breaking change**, add `!` immediately after `)` in the header and,
+when migration or contract detail is warranted, append a `BREAKING CHANGE:`
+footer after the body:
+
+```
+domain(type)!: title
+
+Overview of the breaking change and its impact.
+
+BREAKING CHANGE: <what breaks and how to migrate>
 ```
 
 - For a **single cohesive commit** (all changed files belong together), emit
@@ -126,19 +166,50 @@ One-to-two sentence overview of the motivation or problem solved.
 
 ### Title rules
 
-- Format **exactly** `domain(type): title`.
+- Format **exactly** `domain(type): title` for non-breaking changes, or
+  `domain(type)!: title` for breaking changes (the `!` sits immediately after
+  the `)`, with no space).
 - Target title length **<= 50 characters**; **hard maximum 72 characters**
   (reject and shorten any longer title).
 - Imperative style; lowercase the first word (and others where natural); **no
-  trailing period**.
+  trailing punctuation** (the breaking `!` is header syntax after `)`, never a
+  title-ending character).
+- Preserve capitalization when the title begins with a proper noun or code
+  symbol (e.g. `api(fix): handle NullPointerException`); otherwise lowercase
+  the first word.
 - `domain` is the affected subsystem, component, directory, or technical
   concern — **never** a generic Conventional Commits type. For a build refactor
   the domain is `build`/`ci`, not `refactor`.
+
+### Footer and trailer rules
+
+- Separate the body from the footer with **one blank line**. Each footer entry
+  occupies its **own line** using standard trailer syntax; do not fold trailers
+  into body bullets.
+- Issue trailers: `closes`, `reopens`, `refs` — one issue per line
+  (e.g. `closes #10` then `closes #11`), each key rendered in DAC lowercase.
+  Prefer a compact **local** reference (`closes #42`) for issues in the
+  repository's own namespace; use a full, unambiguous **external** URL for
+  cross-repository, cross-forge, or named-tracker issues where a bare number
+  would be ambiguous.
+- Narrative vs formal trailers: the body may describe an issue's motivation or
+  context in prose, but formal automation and collaboration metadata belongs in
+  footer trailers, never folded into body bullets.
+- Breaking-change footer: optional `BREAKING CHANGE:` describing the migration
+  or contract detail (capitalization preserved exactly).
+- Collaboration trailers: `Co-authored-by:`, `Reviewed-by:`, `Signed-off-by:`,
+  etc. — **normalize the key to DAC capitalization** regardless of the casing
+  seen in source history or external input (e.g. render `Signed-off-by:`, not
+  `signed-off-by:`). Never copy inconsistent source casing.
+- **Markdown backticks are presentation-only.** The footer/trailer text is part
+  of the commit message; the surrounding backticks are not.
 
 ### Body rules
 
 - **Wrap every non-title line at 72 columns**, preserving blank lines and bullet
   markers (`- `). Overview and bullets stay concise.
+- When a body is emitted, it MUST explain what changed and why without relying
+  solely on issue links or external URLs.
 - Keep the overview to one or two sentences.
 
 ### Type selection guidance
@@ -157,6 +228,103 @@ One-to-two sentence overview of the motivation or problem solved.
 - **Domain inference is internal.** When the domain is newly inferred rather
   than reused from history, use the evidence to pick the domain, but do not
   surface it in the user-facing message.
+
+## Revert protocol
+
+Treat reverts as a dedicated output case distinct from ordinary suggestions.
+Use the detected VCS to choose the trailer and the identifier format.
+
+- **Header:** `domain(revert): revert "<original commit header>"` — the original
+  header is quoted verbatim inside the title.
+- **Body:** state the **operational reason** for the revert in one or two
+  sentences (why it was undone, not just that it was undone).
+- **Trailer (Git):** `Reverts-Commit: <8-character-short-sha>` — exactly eight
+  characters.
+- **Trailer (Jujutsu):** `Reverts-Change: <8-character-short-id>` — exactly
+  eight characters.
+- **Insufficient evidence:** if the original header or the eight-character
+  identifier cannot be obtained from the repository, do not fabricate them.
+  Emit `Insufficient evidence to suggest a commit message.` instead.
+
+Example — Git revert:
+
+`auth(revert): revert "auth(fix): reject expired sessions"`
+
+`Rollback introduced a regression that dropped valid sessions for clock-skewed clients.`
+
+`Reverts-Commit: a1b2c3d4`
+
+Example — Jujutsu revert:
+
+`auth(revert): revert "auth(fix): reject expired sessions"`
+
+`Rollback introduced a regression that dropped valid sessions for clock-skewed clients.`
+
+`Reverts-Change: e5f6a7b8`
+
+## Grouping and domain decisions
+
+These decisions govern how changes are organized into one or more suggested
+commits and how the domain prefix is chosen. They are computed internally and
+never printed as a report.
+
+### Group changes by intent and atomicity
+
+Group by functional intent and commit atomicity — do not split every changed
+hunk, whitespace difference, or incidental edit into its own unit.
+
+- **Incidental formatting stays with the functional hunk.** Whitespace,
+  indentation, or lint changes that occur within, adjacent to, or directly
+  support a functional change remain in the same suggested unit.
+- **Split only independently intentional formatting.** When formatting, lint, or
+  whitespace changes are intentionally made on their own and are unrelated to a
+  functional change, suggest a separate `style` or `cleanup` unit.
+- **Keep units atomic.** If separating a formatting or cross-file change would
+  make either resulting unit incomplete, misleading, or non-atomic, keep the
+  changes together.
+
+Example — incidental formatting stays grouped:
+
+`parser(fix): reject empty input`
+
+`- guard parse() against None and empty string`
+`- reindent parse() for readability`
+
+### Select domains conservatively
+
+- **Prefer the stable parent domain.** Use the most specific stable
+  architectural area supported by the diff; do not split a domain merely
+  because files live in sub-directories.
+- **Sub-domain only with clear evidence.** Use a sub-domain in the DAC prefix
+  only when the repository shows the child area is stable, recurring,
+  independently meaningful, and would materially improve history navigation or
+  ownership. One sub-domain is sufficient; deeper path mirroring is out of
+  scope.
+- **No mechanical path-derived sub-domains.** Never derive a sub-domain by
+  mechanically truncating or mirroring the file path; the sub-domain must carry
+  architectural meaning on its own.
+
+### Handle coupled multi-domain changes
+
+- **One primary domain per commit.** When a change touches multiple domains,
+  choose a single primary domain for the header. Do not invent multi-domain
+  header syntax that DAC does not define.
+- **Preserve atomicity.** Keep inherently coupled cross-domain changes together
+  when splitting would produce an incomplete, non-buildable, or non-atomic
+  commit.
+- **Mention secondary domains in the body.** When a coupled change includes a
+  secondary domain whose role helps explain the commit, name that domain in the
+  body rather than the header.
+
+Example — coupled domains use one primary domain:
+
+`notify(feat): add webhook sender`
+
+`- implement WebhookSender.post()`
+`- update token scope the sender requires`
+
+(`notify` is the primary domain; the coupled `auth` scope change is described in
+the body, not the header.)
 
 ## File / hunk grouping
 
@@ -235,6 +403,31 @@ Example — single cohesive commit:
 `- guard parse() against None and empty string`
 `- drop leftover TODO in scanner`
 
+Example — breaking change:
+
+`auth(fix)!: reject expired sessions`
+
+`- treat session expiry as a hard failure`
+`- drop lenient grace-period fallback`
+
+`BREAKING CHANGE: clients must refresh tokens before expiry; the grace period is removed.`
+
+Example — dependency bump (domain, not type):
+
+`deps(bump): upgrade requests to 2.32`
+
+`- pin requests 2.32.0 to fix redirect handling`
+
+Example — issue trailers:
+
+`notify(feat): add webhook sender`
+
+`- implement WebhookSender.post()`
+`- retry with exponential backoff`
+
+`closes #10`
+`refs #12`
+
 Example — logical split:
 
 `parser(fix): reject empty input`
@@ -254,7 +447,7 @@ Files:
 
 ---
 
-`ci(build): bump runner image`
+`ci(bump): bump runner image`
 
 `- pin ubuntu-24.04 in workflow`
 

@@ -67,8 +67,13 @@ The skill does not activate automatically after another agent finishes work.
 - Reports unsupported, empty, or untracked-only states instead of inventing a
   commit message.
 
-Supported commit types include `feat`, `fix`, `style`, `refactor`, `test`,
-`build`, `ci`, `chore`, `deps`, `security`, and other common change types.
+Standard DAC types are `feat`, `improve`, `fix`, `perf`, `security`, `bump`,
+`revert`, `cleanup`, `refactor`, `style`, `test`, `init`, `release`, `wip`, and
+`merge`. The `chore` type is **discouraged** and is not part of the standard DAC
+vocabulary; prefer a precise type plus a domain (e.g. `ops(cleanup): ...`).
+Cross-cutting areas such as `build`, `ci`, `deps`, `ops`, and `docs` are
+**domains, not types** — represent the action with a DAC type
+(e.g. `deps(bump): ...`, `ci(fix): ...`).
 
 ## Repository layout
 

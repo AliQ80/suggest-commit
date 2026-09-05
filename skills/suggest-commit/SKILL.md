@@ -71,9 +71,9 @@ uses `build(refactor): ...` or `build(style): ...`, and documentation uses
 `docs(...)`. Never emit `build(type)`, `ci(type)`, `ops(type)`, or
 `deps(type)`.
 
-`chore` is **discouraged** and is not a preferred DAC type. Prefer a standard
-type plus a domain (e.g. `ops(cleanup): ...`, `ci(style): ...`). Reach for
-`chore` only when no standard type plus domain conveys the change, and treat it
+`chore` is **non-standard / custom fallback** and is not a preferred DAC type.
+Prefer a standard type plus a domain (e.g. `ops(cleanup): ...`, `ci(style):
+...`). Use `chore` only when no standard DAC type fits the change, and treat it
 as a last resort rather than a default.
 
 ## Repository inspection (VCS-aware)
@@ -191,16 +191,19 @@ BREAKING CHANGE: <what breaks and how to migrate>
   Prefer a compact **local** reference (`closes #42`) for issues in the
   repository's own namespace; use a full, unambiguous **external** URL for
   cross-repository, cross-forge, or named-tracker issues where a bare number
-  would be ambiguous.
+  would be ambiguous. This local-vs-external preference is a **skill-level
+  convention** (a default for suggestion output), not a hard DAC syntax rule.
 - Narrative vs formal trailers: the body may describe an issue's motivation or
   context in prose, but formal automation and collaboration metadata belongs in
   footer trailers, never folded into body bullets.
 - Breaking-change footer: optional `BREAKING CHANGE:` describing the migration
   or contract detail (capitalization preserved exactly).
 - Collaboration trailers: `Co-authored-by:`, `Reviewed-by:`, `Signed-off-by:`,
-  etc. — **normalize the key to DAC capitalization** regardless of the casing
-  seen in source history or external input (e.g. render `Signed-off-by:`, not
-  `signed-off-by:`). Never copy inconsistent source casing.
+  `Acked-by:`, etc. — **capitalize only the first letter of the complete key**
+  regardless of the casing seen in source history or external input (e.g. render
+  `Signed-off-by:`, `Co-authored-by:`, `Reviewed-by:`, `Acked-by:`, not
+  `signed-off-by:`, `CO-AUTHORED-BY:`, or `signed-off-By:`). Never copy
+  inconsistent source casing.
 - **Markdown backticks are presentation-only.** The footer/trailer text is part
   of the commit message; the surrounding backticks are not.
 
@@ -273,10 +276,14 @@ never printed as a report.
 Group by functional intent and commit atomicity — do not split every changed
 hunk, whitespace difference, or incidental edit into its own unit.
 
-- **Incidental formatting stays with the functional hunk.** Whitespace,
-  indentation, or lint changes that occur within, adjacent to, or directly
-  support a functional change remain in the same suggested unit.
-- **Split only independently intentional formatting.** When formatting, lint, or
+- **Incidental formatting stays with the functional hunk only when directly
+  related.** Whitespace, indentation, or lint changes that occur within,
+  adjacent to, or directly support a functional change remain in the same
+  suggested unit **only if** separating them would make either resulting unit
+  incomplete, misleading, or non-atomic. When the incidental formatting is
+  merely coincidental to the functional change, do not force it into the same
+  unit.
+- **Independent formatting remains style/cleanup.** When formatting, lint, or
   whitespace changes are intentionally made on their own and are unrelated to a
   functional change, suggest a separate `style` or `cleanup` unit.
 - **Keep units atomic.** If separating a formatting or cross-file change would
@@ -300,9 +307,14 @@ Example — incidental formatting stays grouped:
   independently meaningful, and would materially improve history navigation or
   ownership. One sub-domain is sufficient; deeper path mirroring is out of
   scope.
+- **Allow exactly one meaningful slash-separated sub-domain.** A sub-domain may
+  be expressed as a single `parent/child` segment (e.g. `auth/oauth`) when the
+  child area is stable, recurring, and independently meaningful. Deeper
+  `a/b/c/...` chains are not permitted.
 - **No mechanical path-derived sub-domains.** Never derive a sub-domain by
-  mechanically truncating or mirroring the file path; the sub-domain must carry
-  architectural meaning on its own.
+  mechanically truncating or mirroring the file path (e.g. do not turn
+  `src/api/v1/handlers/login.py` into `api/v1/handlers/login`); the sub-domain
+  must carry architectural meaning on its own.
 
 ### Handle coupled multi-domain changes
 

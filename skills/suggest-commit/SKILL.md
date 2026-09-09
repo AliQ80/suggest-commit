@@ -1,6 +1,6 @@
 ---
 name: suggest-commit
-description: "Suggests a readiness-aware, domain-based commit message formatted as `domain(type): title` for non-breaking changes or `domain(type)!: title` for breaking changes. Invoke ONLY when the user explicitly requests a commit suggestion — e.g. by running `/suggest-commit` or by clearly asking in natural language to 'suggest a commit message', 'draft a commit', or 'what should I commit'. Do NOT trigger automatically after an agent finishes work, and do NOT run on implicit or ambient requests. Read-only: never stages, commits, edits files, or changes VCS state. Output is ONLY the proposed commit message(s) (title/body as inline code spans; Markdown backticks are presentation-only); for logical splits an uncolored Files section is appended per commit; reverts use VCS-specific trailers; blockers/edge states emit a concise actionable message."
+description: "Suggests a readiness-aware, domain-based commit message formatted as `domain(type): title` for non-breaking changes or `domain(type)!: title` for breaking changes. Invoke ONLY when the user explicitly requests a commit suggestion — e.g. by running `/suggest-commit` or by clearly asking in natural language to 'suggest a commit message', 'draft a commit', or 'what should I commit'. Do NOT trigger automatically after an agent finishes work, and do NOT run on implicit or ambient requests. Read-only: never stages, commits, edits files, or changes VCS state. Output is ONLY the proposed commit message(s): each ready message is one continuous fenced Markdown block containing a one-to-two sentence motivation overview and at least one concrete granular bullet (Markdown fences are presentation-only). For logical splits use sequential plain-text 'Suggested Commit N:' labels, each with its own fenced message block, a plain-text Files section outside the blocks, and `---` separators; reverts use VCS-specific trailers; blockers/edge states emit a concise actionable message."
 metadata:
   version: "0.7.0"
   requires-path: ""
@@ -47,13 +47,13 @@ does not request a commit suggestion, do not run this workflow.
   from the vocabulary, breaking changes carry `!` immediately after `)`, the
   title has **no trailing punctuation** (reject and rewrite any `. , ; : ! ?`
   etc. — the structural breaking `!` belongs immediately after `)` as header
-  syntax, not as a title-ending character), the title is <=50 chars (hard max
-  72), and every non-title line wraps at 72 columns. Reject and fix any
-  violation. Then render per the Output shape: the
-  title line and every body/bullet line is wrapped in single backticks; the
-  Files section (split suggestions only) is plain text and is never backticked.
-  **Markdown backticks are presentation-only** — they are not part of the commit
-  message; the underlying message content MUST be valid DAC without backticks.
+   syntax, not as a title-ending character), the title is <=50 chars (hard max
+   72), and every non-title line wraps at 72 columns. Reject and fix any
+   violation. Then render per the Output shape: each ready message is one
+   continuous fenced Markdown block (internal blank lines preserved); the Files
+   section (split suggestions only) is plain text outside any fence. **Markdown
+   fences are presentation-only** — they are not part of the commit message; the
+   underlying message content MUST be valid DAC without fences.
 
 ## Type vocabulary
 
@@ -204,13 +204,16 @@ BREAKING CHANGE: <what breaks and how to migrate>
   `Signed-off-by:`, `Co-authored-by:`, `Reviewed-by:`, `Acked-by:`, not
   `signed-off-by:`, `CO-AUTHORED-BY:`, or `signed-off-By:`). Never copy
   inconsistent source casing.
-- **Markdown backticks are presentation-only.** The footer/trailer text is part
-  of the commit message; the surrounding backticks are not.
+- **Markdown fences are presentation-only.** The footer/trailer text is part
+  of the commit message; the surrounding fences are not.
 
 ### Body rules
 
 - **Wrap every non-title line at 72 columns**, preserving blank lines and bullet
   markers (`- `). Overview and bullets stay concise.
+- Every ready message MUST include a one-to-two sentence motivation overview
+  (what changed and why) and at least one meaningful granular bullet that adds
+  concrete detail beyond the title; bullets must not merely restate the title.
 - When a body is emitted, it MUST explain what changed and why without relying
   solely on issue links or external URLs.
 - Keep the overview to one or two sentences.
@@ -251,19 +254,23 @@ Use the detected VCS to choose the trailer and the identifier format.
 
 Example — Git revert:
 
-`auth(revert): revert "auth(fix): reject expired sessions"`
+```
+auth(revert): revert "auth(fix): reject expired sessions"
 
-`Rollback introduced a regression that dropped valid sessions for clock-skewed clients.`
+Rollback introduced a regression that dropped valid sessions for clock-skewed clients.
 
-`Reverts-Commit: a1b2c3d4`
+Reverts-Commit: a1b2c3d4
+```
 
 Example — Jujutsu revert:
 
-`auth(revert): revert "auth(fix): reject expired sessions"`
+```
+auth(revert): revert "auth(fix): reject expired sessions"
 
-`Rollback introduced a regression that dropped valid sessions for clock-skewed clients.`
+Rollback introduced a regression that dropped valid sessions for clock-skewed clients.
 
-`Reverts-Change: e5f6a7b8`
+Reverts-Change: e5f6a7b8
+```
 
 ## Grouping and domain decisions
 
@@ -292,10 +299,12 @@ hunk, whitespace difference, or incidental edit into its own unit.
 
 Example — incidental formatting stays grouped:
 
-`parser(fix): reject empty input`
+```
+parser(fix): reject empty input
 
-`- guard parse() against None and empty string`
-`- reindent parse() for readability`
+- guard parse() against None and empty string
+- reindent parse() for readability
+```
 
 ### Select domains conservatively
 
@@ -330,10 +339,12 @@ Example — incidental formatting stays grouped:
 
 Example — coupled domains use one primary domain:
 
-`notify(feat): add webhook sender`
+```
+notify(feat): add webhook sender
 
-`- implement WebhookSender.post()`
-`- update token scope the sender requires`
+- implement WebhookSender.post()
+- update token scope the sender requires
+```
 
 (`notify` is the primary domain; the coupled `auth` scope change is described in
 the body, not the header.)
@@ -343,7 +354,7 @@ the body, not the header.)
 - For a **single cohesive commit**, do not include a Files section.
 - For **logical split suggestions**, include a plain-text `Files:` section per
   proposed commit (see Logical split suggestions). The Files section is
-  uncolored (never wrapped in backticks).
+  uncolored (never wrapped in fences).
 - List a file **without hunks** (a whole-file listing) when the entire file
   belongs to that commit (e.g. `src/api.py`).
 - Show **specific hunks only** when a file is split between commits or only
@@ -360,13 +371,15 @@ Identify unrelated cohesive units in the change and provide one complete
 - Tests/docs that directly support the same implementation change stay in one
   unit.
 - Independent fixes, features, refactors, or docs changes should be separated;
-  for each proposed unit, emit its message (title/body as inline code spans),
-  then a plain-text `Files:` section listing the files/hunks assigned to that
-  commit (whole-file or hunk-specific as above).
+  for each proposed unit, emit a plain-text `Suggested Commit N:` label, then
+  its message as one continuous fenced Markdown block (overview + bullets +
+  trailers), then a plain-text `Files:` section listing the files/hunks assigned
+  to that commit (whole-file or hunk-specific as above). The Files section is
+  outside the fenced block.
 - Between complete commit units, place a Markdown horizontal separator `---`
-  on its own unstyled line — outside any inline-code span, after the previous
-  unit's plain `Files:` section and before the next commit message. Do not add
-  a separator for a single cohesive commit.
+  on its own unstyled line — outside any fenced block, after the previous unit's
+  plain `Files:` section and before the next `Suggested Commit N:` label. Do not
+  add a separator for a single cohesive commit.
 
 ## Edge-state handling
 
@@ -385,7 +398,7 @@ inventing one:
 - **Insufficient evidence:** if the change can't be responsibly described, output
   only `Insufficient evidence to suggest a commit message.` rather than guessing.
 
-These messages are plain text (not wrapped in backticks) and contain no VCS,
+These messages are plain text (not wrapped in fences) and contain no VCS,
 readiness, or other metadata labels.
 
 ## Output shape
@@ -393,75 +406,121 @@ readiness, or other metadata labels.
 The user-facing output is **ONLY the commit message** (or, for
 blocker/edge/unsupported states, only a concise actionable message). No
 VCS/readiness headings, no explanations, labels, or prose outside the
-message(s), and no code fences.
+message(s). Markdown fences are presentation-only: the underlying content MUST
+be valid DAC.
 
-- **Single cohesive commit:** emit the title line and every body/bullet line as
-  its own inline Markdown code span using single backticks, preserving blank
-  lines as actual blank lines between spans. No Files section.
-- **Logical split:** for each unit, emit its title/body as inline code spans,
-  then a plain-text `Files:` section (uncolored, not backticked) listing that
+- **Single cohesive commit:** emit the full message — title, a one-to-two
+  sentence motivation overview, at least one concrete granular bullet, and any
+  trailers — as one continuous fenced `md` block. Preserve internal blank
+  lines. No label, no Files section.
+- **Logical split:** for each unit, emit a plain-text `Suggested Commit N:`
+  label (N sequential from 1), then the message as its own continuous fenced
+  `md` block (same full content as above). After the block, emit a
+  plain-text `Files:` section (uncolored, outside any fence) listing that
   commit's files/hunks. Between units, place a Markdown `---` separator on its
-  own unstyled line (outside inline-code spans), after the previous unit's
-  Files section and before the next commit message. Do not add a separator for
-  a single cohesive commit.
+  own unstyled line — outside any fenced block, after the previous unit's Files
+  section and before the next `Suggested Commit N:` label. Do not add a
+  separator for a single cohesive commit.
 - **Blockers / unsupported / edge states:** emit only the concise actionable
   plain-text message described above. Never fabricate a commit message when one
   is prohibited.
 
 Example — single cohesive commit:
 
-`parser(fix): reject empty input`
+```md
+parser(fix): reject empty input
 
-`- guard parse() against None and empty string`
-`- drop leftover TODO in scanner`
+Rejecting empty input prevents the parser from silently returning a
+half-initialized node that later crashes downstream consumers.
+
+- guard parse() against None and empty string
+- drop leftover TODO in scanner
+```
 
 Example — breaking change:
 
-`auth(fix)!: reject expired sessions`
+```md
+auth(fix)!: reject expired sessions
 
-`- treat session expiry as a hard failure`
-`- drop lenient grace-period fallback`
+Expired sessions now fail immediately instead of being treated as
+anonymous, which previously leaked guest access to authenticated routes.
 
-`BREAKING CHANGE: clients must refresh tokens before expiry; the grace period is removed.`
+- treat session expiry as a hard failure
+- drop lenient grace-period fallback
+
+BREAKING CHANGE: clients must refresh tokens before expiry; the grace period is removed.
+```
 
 Example — dependency bump (domain, not type):
 
-`deps(bump): upgrade requests to 2.32`
+```md
+deps(bump): upgrade requests to 2.32
 
-`- pin requests 2.32.0 to fix redirect handling`
+Rolling forward fixes a silent redirect-drop regression affecting
+token-refresh flows behind proxies.
+
+- pin requests 2.32.0 to fix redirect handling
+```
 
 Example — issue trailers:
 
-`notify(feat): add webhook sender`
+```md
+notify(feat): add webhook sender
 
-`- implement WebhookSender.post()`
-`- retry with exponential backoff`
+Adds an outbound webhook path so external systems are notified on
+delivery events without polling.
 
-`closes #10`
-`refs #12`
+- implement WebhookSender.post()
+- retry with exponential backoff
+
+closes #10
+refs #12
+```
 
 Example — logical split:
 
-`parser(fix): reject empty input`
+Suggested Commit 1:
 
-`- guard parse() against None and empty string`
+```md
+parser(fix): reject empty input
+
+Rejecting empty input prevents the parser from returning a
+half-initialized node that later crashes downstream consumers.
+
+- guard parse() against None and empty string
+```
 
 Files:
 - src/parser.py
 - src/scanner.py: lines 22-30
 
-`notify(feat): add webhook sender`
+---
 
-`- implement WebhookSender.post()`
+Suggested Commit 2:
+
+```md
+notify(feat): add webhook sender
+
+Adds an outbound webhook path so external systems are notified on
+delivery events without polling.
+
+- implement WebhookSender.post()
+```
 
 Files:
 - src/notify/webhook.py
 
 ---
 
-`ci(bump): bump runner image`
+Suggested Commit 3:
 
-`- pin ubuntu-24.04 in workflow`
+```md
+ci(bump): bump runner image
+
+Pins a newer runner image to pick up the patched git and Node toolchain.
+
+- pin ubuntu-24.04 in workflow
+```
 
 Files:
 - .github/workflows/test.yml

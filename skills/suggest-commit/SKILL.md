@@ -360,6 +360,10 @@ the body, not the header.)
 - Show **specific hunks only** when a file is split between commits or only
   selected lines belong to this commit. Use precise line ranges or recognizable
   hunk descriptions (e.g. `src/api.py: lines 10-14`).
+- For logical split suggestions, prefer assigning each changed file to one
+  proposed commit. Split a file into hunk-specific entries only when assigning
+  the whole file to either commit would make a unit incoherent, incomplete,
+  misleading, or non-atomic.
 - **Never** stage, commit, or physically split the changes — only describe the
   grouping. The listing is a suggestion, not an action performed.
 

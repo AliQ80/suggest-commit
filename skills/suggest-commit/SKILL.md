@@ -1,8 +1,8 @@
 ---
 name: suggest-commit
-description: "Suggests a readiness-aware, domain-based commit message formatted as `domain(type): title` for non-breaking changes or `domain(type)!: title` for breaking changes. Invoke ONLY when the user explicitly requests a commit suggestion — e.g. by running `/suggest-commit` or by clearly asking in natural language to 'suggest a commit message', 'draft a commit', or 'what should I commit'. Do NOT trigger automatically after an agent finishes work, and do NOT run on implicit or ambient requests. Read-only: never stages, commits, edits files, or changes VCS state. Output is ONLY the proposed commit message(s): each ready message is one continuous fenced Markdown block containing a one-to-two sentence motivation overview and at least one concrete granular bullet (Markdown fences are presentation-only). For logical splits use sequential plain-text 'Suggested Commit N:' labels, each with its own fenced message block, a plain-text Files section outside the blocks, and `---` separators; reverts use VCS-specific trailers; blockers/edge states emit a concise actionable message."
+description: "Suggest readiness-aware commit messages for Git or Jujutsu changes using `domain(type): title`. Use when explicitly invoked or when the user clearly asks to suggest or draft a commit message. Inspect changes, identify obvious unfinished work, and suggest logical commit splits when appropriate. Never activate automatically after completing another task. Do not edit files, stage changes, or create commits."
 metadata:
-  version: "0.7.0"
+  version: "0.8.0"
   requires-path: ""
 ---
 
@@ -15,19 +15,24 @@ only**.
 ## Invocation
 
 Trigger ONLY through:
-- The slash command `/suggest-commit`, OR
+- `$suggest-commit` in Codex, OR
+- The slash command `/suggest-commit` in OpenCode, OR
 - A clear natural-language request such as "suggest a commit message",
   "draft my commit", "what should I commit here", or "help me write a commit".
 
 Never activate automatically after another agent completes a task, and never
-run on vague or unrelated requests (e.g. "commit this" is ambiguous — ask
-which behavior is wanted, or treat as a suggestion request only). If the user
+run on vague or unrelated requests. For example, "commit this" requests a
+different action or is ambiguous; clarify rather than treating it as permission
+to run this suggestion workflow or create a commit. If the user
 does not request a commit suggestion, do not run this workflow.
 
 ## Hard constraints
 
-- **Read-only.** Use inspection commands only. Never `git add`, `git commit`,
-  `jj commit`, `jj squash`, file edits, or any VCS mutation.
+- **Read-only inspection.** Normal automatic Jujutsu working-copy snapshots
+  are allowed so inspection captures up-to-date files. Never edit files, stage
+  changes, create commits, rebase, squash, or perform other deliberate VCS
+  mutations (including `git add`, `git commit`, `jj commit`, and `jj squash`).
+  Do not suppress snapshots with `--ignore-working-copy`.
 - **Explicit only.** No automatic post-task triggering.
 - **Domain-based title format is the invariant output.** Exactly
   `domain(type): title` for non-breaking changes, or `domain(type)!: title`
@@ -47,10 +52,12 @@ does not request a commit suggestion, do not run this workflow.
   from the vocabulary, breaking changes carry `!` immediately after `)`, the
   title has **no trailing punctuation** (reject and rewrite any `. , ; : ! ?`
   etc. — the structural breaking `!` belongs immediately after `)` as header
-   syntax, not as a title-ending character), the title is <=50 chars (hard max
-   72), and every non-title line wraps at 72 columns. Reject and fix any
-   violation. Then render per the Output shape: each ready message is one
-   continuous fenced Markdown block (internal blank lines preserved); the Files
+   syntax, not as a title-ending character), the complete header targets <=50
+   characters (normal maximum 72, including domain/type/separator), and every
+   non-header line wraps at 72 columns. For reverts, preserving the quoted
+   original header verbatim takes precedence over header length and quoted
+   punctuation rules. Reject and fix any other violation. Then render per the
+   Output shape: each ready message is one continuous fenced Markdown block (internal blank lines preserved); the Files
    section (split suggestions only) is plain text outside any fence. **Markdown
    fences are presentation-only** — they are not part of the commit message; the
    underlying message content MUST be valid DAC without fences.
@@ -78,17 +85,38 @@ as a last resort rather than a default.
 
 ## Repository inspection (VCS-aware)
 
-Detect the VCS first.
+Discover the repository through the VCS tools, not by checking only for
+`.jj/` or `.git/` in the current directory. Git worktrees can have a `.git`
+file, and invocation may occur in a subfolder.
 
-1. **Prefer Jujutsu** when a `.jj/` directory exists at the repo root:
-    - `jj status` — working-copy changes and untracked files
-    - `jj log -r @ -n 20 --template ...` — recent history for semantic/type clues
+- If `jj` is available, run `jj root` first. On success, use Jujutsu and run
+  subsequent commands from that resolved root (including in colocated repos).
+- If Jujutsu is unavailable or reports an ordinary “not in a repository”
+  result, try `git rev-parse --show-toplevel` when Git is available. On success,
+  inspect from the resolved Git root.
+- Do not treat permission errors, corruption, or other discovery/inspection
+  failures as repository absence or a clean change. Stop with a concise,
+  actionable limitation. If no supported tool/repository is available, report
+  that state; suggest installation of a missing tool when appropriate. Only
+  suggest initialization when tools establish that no repository exists.
+
+1. **Jujutsu inspection:**
+    - `jj status` — current working-copy changes and untracked files; normal
+      automatic snapshots are allowed.
+    - Recent ancestor titles (up to 20, excluding the current change):
+
+      ```sh
+      jj log -r 'ancestors(@) ~ @' -n 20 --no-graph \
+        -T 'description.first_line() ++ "\n"'
+      ```
+
     - `jj diff --summary` — files touched
     - `jj diff --stat` — change size per file
     - `jj diff --git` — full patch for evidence
-2. **Git fallback** when no `.jj/` but a `.git/` exists:
+2. **Git inspection:**
     - `git status --short`
-    - `git log --oneline -20` (semantic/type clues only)
+    - `git log --oneline -20` — history clues only; no commits yet is a valid
+      initial-change state, not an inspection failure.
     - **Staged changes first:** `git diff --cached --stat` and `git diff --cached`.
       When the index is non-empty the change to describe is the staged change.
       **Never** conclude the working tree is clean from an empty unstaged
@@ -96,15 +124,17 @@ Detect the VCS first.
       there is nothing to commit.
     - **Unstaged changes:** `git diff --stat` and `git diff`.
     - `git ls-files --others --exclude-standard` — untracked files
-3. **Unsupported state** when neither `.jj/` nor `.git/` is found, or the
-    inspection commands fail: do NOT invent a message. Stop and output only a
-    concise, actionable message (see Output shape), including an optional
-    non-executed initialization suggestion — prefer `jj git init` when the user
-    wants Jujutsu, otherwise `git init`. Never execute it.
+3. **Unsupported state:** do NOT invent a message. Stop and output only a
+    concise, actionable message (see Output shape). When no repository exists,
+    an optional non-executed initialization suggestion is allowed: prefer
+    `jj git init` when the user wants Jujutsu, otherwise `git init`. Never
+    execute it.
 
-Treat history as *semantic evidence only*. It may inform the type vocabulary or
-an existing domain name, but a Conventional Commits prefix is never used as the
-domain.
+Read history only to reuse established **domain names and wording** when they
+fit the current diff. A Conventional Commits type prefix is never used as the
+domain. History does not supply factual claims about the current change or
+prove readiness; the selected current diff does. Empty ancestor history is
+valid and does not block an initial-change suggestion.
 
 ## Readiness assessment
 
@@ -155,6 +185,8 @@ domain(type)!: title
 
 Overview of the breaking change and its impact.
 
+- Concrete change that introduces the new contract
+
 BREAKING CHANGE: <what breaks and how to migrate>
 ```
 
@@ -169,11 +201,14 @@ BREAKING CHANGE: <what breaks and how to migrate>
 - Format **exactly** `domain(type): title` for non-breaking changes, or
   `domain(type)!: title` for breaking changes (the `!` sits immediately after
   the `)`, with no space).
-- Target title length **<= 50 characters**; **hard maximum 72 characters**
-  (reject and shorten any longer title).
+- Target **complete header** length **<= 50 characters**; normal maximum
+  **72 characters**, counting domain, type, breaking marker, separator, and
+  title. Shorten ordinary headers exceeding 72 characters. Revert headers
+  may exceed these limits to preserve the original header verbatim.
 - Imperative style; lowercase the first word (and others where natural); **no
   trailing punctuation** (the breaking `!` is header syntax after `)`, never a
-  title-ending character).
+  title-ending character). A revert header ends with the required closing
+  quote; preserve any punctuation inside the quoted original header.
 - Preserve capitalization when the title begins with a proper noun or code
   symbol (e.g. `api(fix): handle NullPointerException`); otherwise lowercase
   the first word.
@@ -241,9 +276,11 @@ Treat reverts as a dedicated output case distinct from ordinary suggestions.
 Use the detected VCS to choose the trailer and the identifier format.
 
 - **Header:** `domain(revert): revert "<original commit header>"` — the original
-  header is quoted verbatim inside the title.
+  header is quoted verbatim inside the title. Preserve its spelling, case,
+  and punctuation even if this makes the complete header exceed 72 characters.
 - **Body:** state the **operational reason** for the revert in one or two
-  sentences (why it was undone, not just that it was undone).
+  sentences (why it was undone, not just that it was undone), then include at
+  least one granular bullet describing the concrete reversal.
 - **Trailer (Git):** `Reverts-Commit: <8-character-short-sha>` — exactly eight
   characters.
 - **Trailer (Jujutsu):** `Reverts-Change: <8-character-short-id>` — exactly
@@ -255,9 +292,12 @@ Use the detected VCS to choose the trailer and the identifier format.
 Example — Git revert:
 
 ```
-auth(revert): revert "auth(fix): reject expired sessions"
+auth(revert): revert "auth(fix): reject expired sessions when refreshing access tokens"
 
-Rollback introduced a regression that dropped valid sessions for clock-skewed clients.
+The original change rejected valid sessions for clock-skewed clients.
+Reverting it restores access while expiry handling is corrected.
+
+- restore the previous session-expiry tolerance
 
 Reverts-Commit: a1b2c3d4
 ```
@@ -267,7 +307,10 @@ Example — Jujutsu revert:
 ```
 auth(revert): revert "auth(fix): reject expired sessions"
 
-Rollback introduced a regression that dropped valid sessions for clock-skewed clients.
+The original change rejected valid sessions for clock-skewed clients.
+Reverting it restores access while expiry handling is corrected.
+
+- restore the previous session-expiry tolerance
 
 Reverts-Change: e5f6a7b8
 ```
@@ -301,6 +344,9 @@ Example — incidental formatting stays grouped:
 
 ```
 parser(fix): reject empty input
+
+Rejecting empty input prevents downstream failures from partially
+initialized parser nodes.
 
 - guard parse() against None and empty string
 - reindent parse() for readability
@@ -341,6 +387,9 @@ Example — coupled domains use one primary domain:
 
 ```
 notify(feat): add webhook sender
+
+Notify external systems of deliveries without requiring polling.
+The auth scope change allows the sender to obtain delivery credentials.
 
 - implement WebhookSender.post()
 - update token scope the sender requires
@@ -452,7 +501,7 @@ anonymous, which previously leaked guest access to authenticated routes.
 - treat session expiry as a hard failure
 - drop lenient grace-period fallback
 
-BREAKING CHANGE: clients must refresh tokens before expiry; the grace period is removed.
+BREAKING CHANGE: refresh tokens before expiry; no grace period remains.
 ```
 
 Example — dependency bump (domain, not type):
